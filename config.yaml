@@ -1,0 +1,6 @@
+package_name: serde
+repository: tests/fixtures/repository.yaml
+test_repository_mode: true
+version: "1.0.0"
+output_file: dependencies.svg
+max_depth: 3
