@@ -1,1 +1,19 @@
-A: []
+packages:
+  serde:
+    version: "1.0.0"
+    dependencies:
+      - syn
+      - quote
+
+  syn:
+    version: "2.0.0"
+    dependencies:
+      - unicode-ident
+
+  quote:
+    version: "1.0.0"
+    dependencies: []
+
+  unicode-ident:
+    version: "1.0.0"
+    dependencies: []
