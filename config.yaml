@@ -1,6 +1,6 @@
-package_name: serde
-repository: tests/fixtures/repository.yaml
-test_repository_mode: true
+package_name: serde_json
+repository: https://crates.io
+test_repository_mode: false
 version: "1.0.0"
-output_file: dependencies.svg
-max_depth: 3
+output_file: serde-json-dependencies.svg
+max_depth: 2
