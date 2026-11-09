@@ -1,6 +1,6 @@
-package_name: serde_json
+package_name: clap
 repository: https://crates.io
 test_repository_mode: false
-version: 1.0.0
-output_file: serde-json-dependencies.svg
+version: "4.5.0"
+output_file: clap-dependencies.svg
 max_depth: 2
