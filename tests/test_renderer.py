@@ -6,6 +6,7 @@ import pytest
 from dependency_visualizer.renderer import (
     SVGRenderError,
     render_graph,
+    render_mermaid,
 )
 
 
@@ -206,3 +207,75 @@ def test_render_graph_escapes_special_characters(tmp_path):
     ]
 
     assert "lib&core" in text_values
+def test_render_mermaid_creates_file(graph, tmp_path):
+    output = tmp_path / "dependencies.mmd"
+
+    result = render_mermaid(graph, output)
+
+    assert result == output
+    assert output.is_file()
+
+
+def test_mermaid_contains_all_package_names_and_versions(
+    graph, tmp_path
+):
+    output = tmp_path / "dependencies.mmd"
+
+    render_mermaid(graph, output)
+
+    content = output.read_text(encoding="utf-8")
+
+    assert "flowchart LR" in content
+    assert "serde v1.0.0" in content
+    assert "syn v2.0.0" in content
+    assert "quote v1.0.0" in content
+    assert "unicode-ident v1.0.0" in content
+
+
+def test_mermaid_contains_edges(graph, tmp_path):
+    output = tmp_path / "dependencies.mmd"
+
+    render_mermaid(graph, output)
+
+    content = output.read_text(encoding="utf-8")
+
+    assert " --> " in content
+    assert content.count(" --> ") == 3
+
+
+def test_render_mermaid_creates_parent_directory(
+    graph, tmp_path
+):
+    output = tmp_path / "nested" / "dependencies.mmd"
+
+    render_mermaid(graph, output)
+
+    assert output.is_file()
+
+
+def test_render_mermaid_rejects_empty_nodes(tmp_path):
+    invalid_graph = {
+        "root": "serde",
+        "nodes": [],
+        "edges": [],
+    }
+
+    with pytest.raises(SVGRenderError):
+        render_mermaid(
+            invalid_graph,
+            tmp_path / "dependencies.mmd",
+        )
+
+
+def test_render_mermaid_rejects_invalid_edge(
+    graph, tmp_path
+):
+    graph["edges"].append(
+        {"source": "serde", "target": "missing"}
+    )
+
+    with pytest.raises(SVGRenderError):
+        render_mermaid(
+            graph,
+            tmp_path / "dependencies.mmd",
+        )

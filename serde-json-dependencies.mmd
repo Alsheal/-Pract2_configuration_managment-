@@ -1,0 +1,14 @@
+flowchart LR
+    node_0["serde_json v1.0.0"]
+    node_1["dtoa v0.4.8"]
+    node_2["itoa v0.3.4"]
+    node_3["num-traits v0.1.43"]
+    node_4["num-traits v0.2.19"]
+    node_5["serde v1.0.229"]
+    node_6["serde_core v1.0.229"]
+    node_0 --> node_1
+    node_0 --> node_2
+    node_0 --> node_3
+    node_0 --> node_5
+    node_3 --> node_4
+    node_5 --> node_6

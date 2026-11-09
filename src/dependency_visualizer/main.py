@@ -3,7 +3,7 @@ from pathlib import Path
 import argparse
 import sys
 
-from matplotlib.path import Path
+from pathlib import Path
 
 from dependency_visualizer.config import ConfigError, load_config
 from dependency_visualizer.repository import (
