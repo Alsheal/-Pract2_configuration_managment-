@@ -302,6 +302,9 @@ def load_cargo_repository(
             if dependency.get("optional", False):
                 continue
 
+            if dependency.get("target") is not None:
+                continue
+
             dependency_name = dependency.get("name")
             dependency_requirement = dependency.get("req", "*")
 
