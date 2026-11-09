@@ -1,4 +1,3 @@
-
 from pathlib import Path
 from typing import Any
 import xml.etree.ElementTree as ET
@@ -25,12 +24,12 @@ def render_graph(
     if not isinstance(graph, dict):
         raise SVGRenderError("Граф должен быть словарём.")
 
-    root_name = graph.get("root")
+    root_id = graph.get("root")
     nodes = graph.get("nodes")
     edges = graph.get("edges")
 
-    if not isinstance(root_name, str) or not root_name:
-        raise SVGRenderError("Не указано имя корневого пакета.")
+    if not isinstance(root_id, str) or not root_id:
+        raise SVGRenderError("Не указан идентификатор корневого пакета.")
 
     if not isinstance(nodes, list) or not nodes:
         raise SVGRenderError("Граф должен содержать список вершин.")
@@ -44,9 +43,15 @@ def render_graph(
         if not isinstance(node, dict):
             raise SVGRenderError("Описание вершины должно быть словарём.")
 
+        node_id = node.get("id", node.get("name"))
         name = node.get("name")
         version = node.get("version")
         depth = node.get("depth")
+
+        if not isinstance(node_id, str) or not node_id:
+            raise SVGRenderError(
+                "Идентификатор вершины должен быть непустой строкой."
+            )
 
         if not isinstance(name, str) or not name:
             raise SVGRenderError("Имя вершины должно быть непустой строкой.")
@@ -65,14 +70,14 @@ def render_graph(
                 f"Некорректная глубина вершины '{name}'."
             )
 
-        if name in node_map:
+        if node_id in node_map:
             raise SVGRenderError(
-                f"Обнаружена повторяющаяся вершина '{name}'."
+                f"Обнаружена повторяющаяся вершина '{node_id}'."
             )
 
-        node_map[name] = node
+        node_map[node_id] = node
 
-    if root_name not in node_map:
+    if root_id not in node_map:
         raise SVGRenderError("Корневая вершина отсутствует в графе.")
 
     for edge in edges:
@@ -96,8 +101,9 @@ def render_graph(
     max_depth = max(node["depth"] for node in nodes)
 
     levels = {}
-    for node in nodes:
-        levels.setdefault(node["depth"], []).append(node["name"])
+
+    for node_id, node in node_map.items():
+        levels.setdefault(node["depth"], []).append(node_id)
 
     max_level_size = max(len(level) for level in levels.values())
 
@@ -114,17 +120,19 @@ def render_graph(
 
     positions = {}
 
-    for depth, names in levels.items():
-        for index, name in enumerate(names):
+    for depth, node_ids in levels.items():
+        for index, node_id in enumerate(node_ids):
             x = margin + depth * (node_width + horizontal_gap)
             y = margin + index * (node_height + vertical_gap)
 
-            positions[name] = (
+            positions[node_id] = (
                 x,
                 y,
                 x + node_width / 2,
                 y + node_height / 2,
             )
+
+    root_name = node_map[root_id]["name"]
 
     svg = ET.Element(
         _tag("svg"),
@@ -164,13 +172,16 @@ def render_graph(
         },
     )
 
-    # Сначала рисуем рёбра, чтобы они находились под вершинами.
+    # Рёбра рисуются под вершинами.
     for edge in edges:
-        source_x, source_y, _, _ = positions[edge["source"]]
-        target_x, target_y, _, _ = positions[edge["target"]]
+        source = edge["source"]
+        target = edge["target"]
 
-        source_depth = node_map[edge["source"]]["depth"]
-        target_depth = node_map[edge["target"]]["depth"]
+        source_x, source_y, _, _ = positions[source]
+        target_x, target_y, _, _ = positions[target]
+
+        source_depth = node_map[source]["depth"]
+        target_depth = node_map[target]["depth"]
 
         if target_depth > source_depth:
             start_x = source_x + node_width
@@ -178,13 +189,8 @@ def render_graph(
             end_x = target_x
             end_y = target_y + node_height / 2
 
-            path = (
-                f"M {start_x} {start_y} "
-                f"L {end_x} {end_y}"
-            )
+            path = f"M {start_x} {start_y} L {end_x} {end_y}"
         else:
-            # Для обратных рёбер, например при цикле,
-            # используем дугу над или под вершинами.
             start_x = source_x + node_width / 2
             start_y = source_y
             end_x = target_x + node_width / 2
@@ -210,15 +216,15 @@ def render_graph(
             },
         )
 
-    # Затем рисуем вершины и подписи.
-    for node in nodes:
+    # Вершины и подписи.
+    for node_id, node in node_map.items():
         name = node["name"]
         version = node["version"]
         depth = node["depth"]
 
-        x, y, _, _ = positions[name]
+        x, y, _, _ = positions[node_id]
 
-        is_root = name == root_name
+        is_root = node_id == root_id
 
         fill = "#dbeafe" if is_root else "#dcfce7"
         stroke = "#3b82f6" if is_root else "#22a06b"

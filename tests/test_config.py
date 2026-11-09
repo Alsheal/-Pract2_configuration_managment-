@@ -166,3 +166,42 @@ def test_invalid_max_depth(tmp_path, value):
 
     with pytest.raises(ConfigError, match="max_depth"):
         load_config(write_config(tmp_path, data))
+
+@pytest.mark.parametrize(
+    "missing_key",
+    [
+        "package_name",
+        "repository",
+        "test_repository_mode",
+        "version",
+        "output_file",
+        "max_depth",
+    ],
+)
+def test_each_required_parameter_is_mandatory(tmp_path, missing_key):
+    data = valid_config("https://example.com/repo", False)
+    del data[missing_key]
+
+    config_path = write_config(tmp_path, data)
+
+    with pytest.raises(ConfigError, match=missing_key):
+        load_config(config_path)
+
+
+def test_test_repository_must_be_a_file(tmp_path):
+    repository_dir = tmp_path / "repository"
+    repository_dir.mkdir()
+
+    data = valid_config(str(repository_dir), True)
+    config_path = write_config(tmp_path, data)
+
+    with pytest.raises(ConfigError, match="нужен путь к файлу"):
+        load_config(config_path)
+
+
+def test_empty_yaml_document(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="YAML-объект"):
+        load_config(config_path)

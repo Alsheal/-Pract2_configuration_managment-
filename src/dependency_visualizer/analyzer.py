@@ -1,4 +1,3 @@
-from collections import deque
 from typing import Any
 
 
@@ -11,7 +10,7 @@ def analyze_dependencies(
     package_name: str,
     max_depth: int,
 ) -> list[dict[str, Any]]:
-    """Возвращает зависимости пакета с указанием глубины."""
+    """Выполняет итеративный DFS и возвращает найденные зависимости."""
     if package_name not in packages:
         raise DependencyAnalysisError(
             f"Пакет '{package_name}' не найден в репозитории."
@@ -26,34 +25,43 @@ def analyze_dependencies(
         raise DependencyAnalysisError(
             "max_depth не может быть отрицательным."
         )
+
     if max_depth == 0:
         return []
 
     result = []
     visited = {package_name}
-    queue = deque()
+    stack = []
 
-    for dependency in packages[package_name]["dependencies"]:
-        queue.append((dependency, 1))
+    for dependency in reversed(
+        packages[package_name]["dependencies"]
+    ):
+        stack.append((dependency, 1))
 
-    while queue:
-        name, depth = queue.popleft()
+    while stack:
+        package_id, depth = stack.pop()
 
-        if name in visited:
+        if package_id in visited:
             continue
 
-        visited.add(name)
-        package = packages[name]
+        if package_id not in packages:
+            raise DependencyAnalysisError(
+                f"Зависимость '{package_id}' не найдена в репозитории."
+            )
+
+        visited.add(package_id)
+        package = packages[package_id]
 
         result.append({
-            "name": name,
+            "id": package_id,
+            "name": package.get("name", package_id),
             "version": package["version"],
             "depth": depth,
         })
 
         if depth < max_depth:
-            for dependency in package["dependencies"]:
+            for dependency in reversed(package["dependencies"]):
                 if dependency not in visited:
-                    queue.append((dependency, depth + 1))
+                    stack.append((dependency, depth + 1))
 
     return result

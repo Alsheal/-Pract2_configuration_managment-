@@ -1,0 +1,6 @@
+package_name: serde
+repository: https://crates.io
+test_repository_mode: false
+version: "1.0.0"
+output_file: dependencies.svg
+max_depth: 3
