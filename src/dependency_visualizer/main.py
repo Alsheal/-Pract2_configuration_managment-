@@ -1,7 +1,9 @@
 """Точка входа CLI-приложения."""
-
+from pathlib import Path
 import argparse
 import sys
+
+from matplotlib.path import Path
 
 from dependency_visualizer.config import ConfigError, load_config
 from dependency_visualizer.repository import (
@@ -21,6 +23,7 @@ from dependency_visualizer.graph import (
 from dependency_visualizer.renderer import (
     SVGRenderError,
     render_graph,
+    render_mermaid,
 )
 
 
@@ -146,14 +149,21 @@ def main() -> int:
             ):
                 print(f"{index}. {package}")
 
-        # Этап 5. SVG-визуализация.
+        # Этап 5. SVG- и Mermaid-визуализация.
         output_path = render_graph(
             graph,
             config.output_file,
         )
 
-        print("\nЭтап 5 завершён: SVG-визуализация создана.")
-        print(f"Файл сохранён: {output_path.resolve()}")
+        mermaid_path = Path(config.output_file).with_suffix(".mmd")
+        mermaid_path = render_mermaid(
+            graph,
+            mermaid_path,
+        )
+
+        print("\nЭтап 5 завершён: визуализации созданы.")
+        print(f"SVG-файл сохранён: {output_path.resolve()}")
+        print(f"Mermaid-файл сохранён: {mermaid_path.resolve()}")
 
         return 0
 

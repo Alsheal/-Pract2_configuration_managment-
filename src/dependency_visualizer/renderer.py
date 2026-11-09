@@ -287,3 +287,103 @@ def render_graph(
         ) from exc
 
     return output
+
+def render_mermaid(
+    graph: dict[str, Any],
+    output_path: str | Path,
+) -> Path:
+    """Создаёт текстовое представление графа в формате Mermaid."""
+
+    if not isinstance(graph, dict):
+        raise SVGRenderError("Граф должен быть словарём.")
+
+    root_id = graph.get("root")
+    nodes = graph.get("nodes")
+    edges = graph.get("edges")
+
+    if not isinstance(root_id, str) or not root_id:
+        raise SVGRenderError("Не указан идентификатор корневого пакета.")
+
+    if not isinstance(nodes, list) or not nodes:
+        raise SVGRenderError("Граф должен содержать список вершин.")
+
+    if not isinstance(edges, list):
+        raise SVGRenderError("Граф должен содержать список рёбер.")
+
+    node_map = {}
+
+    for node in nodes:
+        if not isinstance(node, dict):
+            raise SVGRenderError("Описание вершины должно быть словарём.")
+
+        node_id = node.get("id", node.get("name"))
+        name = node.get("name")
+        version = node.get("version")
+
+        if not isinstance(node_id, str) or not node_id:
+            raise SVGRenderError("Некорректный идентификатор вершины.")
+
+        if not isinstance(name, str) or not name:
+            raise SVGRenderError("Некорректное имя вершины.")
+
+        if not isinstance(version, str) or not version:
+            raise SVGRenderError(
+                f"У вершины '{name}' отсутствует версия."
+            )
+
+        if node_id in node_map:
+            raise SVGRenderError(
+                f"Обнаружена повторяющаяся вершина '{node_id}'."
+            )
+
+        node_map[node_id] = node
+
+    if root_id not in node_map:
+        raise SVGRenderError("Корневая вершина отсутствует в графе.")
+
+    mermaid_ids = {
+        node_id: f"node_{index}"
+        for index, node_id in enumerate(node_map)
+    }
+
+    lines = ["flowchart LR"]
+
+    for node_id, node in node_map.items():
+        name = node["name"].replace('"', "'")
+        version = node["version"].replace('"', "'")
+        label = f"{name} v{version}"
+
+        lines.append(
+            f'    {mermaid_ids[node_id]}["{label}"]'
+        )
+
+    for edge in edges:
+        if not isinstance(edge, dict):
+            raise SVGRenderError("Описание ребра должно быть словарём.")
+
+        source = edge.get("source")
+        target = edge.get("target")
+
+        if source not in node_map or target not in node_map:
+            raise SVGRenderError(
+                "Ребро ссылается на отсутствующую вершину."
+            )
+
+        lines.append(
+            f"    {mermaid_ids[source]} --> {mermaid_ids[target]}"
+        )
+
+    output = Path(output_path)
+
+    try:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            "\n".join(lines) + "\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        raise SVGRenderError(
+            f"Не удалось сохранить Mermaid-файл: {exc}"
+        ) from exc
+
+    return output
