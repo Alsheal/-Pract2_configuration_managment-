@@ -1,13 +1,12 @@
 
 """Загрузка и проверка YAML-конфигурации."""
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
-import re
 from urllib.parse import urlparse
 
 import yaml
-
 
 REQUIRED_KEYS = {
     "package_name",

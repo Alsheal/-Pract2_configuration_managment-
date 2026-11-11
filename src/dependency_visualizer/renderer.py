@@ -4,11 +4,12 @@ from pathlib import Path
 from typing import Any
 from xml.etree.ElementTree import (
     Element,
-    ElementTree as et_tree,
     SubElement,
     register_namespace,
 )
-
+from xml.etree.ElementTree import (
+    ElementTree as et_tree,
+)
 
 NODE_WIDTH = 180
 NODE_HEIGHT = 64

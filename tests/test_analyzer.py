@@ -5,7 +5,6 @@ from dependency_visualizer.analyzer import (
     analyze_dependencies,
 )
 
-
 EXPECTED_DEPTH_ONE = 1
 EXPECTED_DEPTH_TWO = 2
 

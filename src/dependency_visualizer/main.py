@@ -4,19 +4,14 @@ import argparse
 import sys
 from pathlib import Path
 
+from dependency_visualizer.analyzer import (
+    DependencyAnalysisError,
+    analyze_dependencies,
+)
 from dependency_visualizer.config import (
     AppConfig,
     ConfigError,
     load_config,
-)
-from dependency_visualizer.repository import (
-    RepositoryError,
-    load_repository,
-    load_cargo_repository,
-)
-from dependency_visualizer.analyzer import (
-    DependencyAnalysisError,
-    analyze_dependencies,
 )
 from dependency_visualizer.graph import (
     DependencyGraphError,
@@ -27,6 +22,11 @@ from dependency_visualizer.renderer import (
     SVGRenderError,
     render_graph,
     render_mermaid,
+)
+from dependency_visualizer.repository import (
+    RepositoryError,
+    load_cargo_repository,
+    load_repository,
 )
 
 

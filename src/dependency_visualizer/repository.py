@@ -2,13 +2,13 @@
 
 import json
 import operator
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import yaml
-
 
 CARGO_INDEX_URL = "https://index.crates.io/"
 CARGO_USER_AGENT = "dependency-visualizer/1.0"

@@ -5,7 +5,6 @@ import yaml
 
 from dependency_visualizer.config import ConfigError, load_config
 
-
 INVALID_REPOSITORY_VALUE = 42
 INVALID_MAX_DEPTH_VALUE = 1.5
 MAX_DEPTH = 3

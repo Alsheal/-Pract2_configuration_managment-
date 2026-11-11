@@ -8,7 +8,6 @@ from dependency_visualizer.renderer import (
     render_mermaid,
 )
 
-
 SVG_PATH_COUNT_WITH_ARROW = 4
 MERMAID_EDGE_COUNT = 3
 

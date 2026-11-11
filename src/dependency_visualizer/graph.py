@@ -7,7 +7,6 @@ from dependency_visualizer.analyzer import (
     analyze_dependencies,
 )
 
-
 UNVISITED = 0
 VISITING = 1
 VISITED = 2
