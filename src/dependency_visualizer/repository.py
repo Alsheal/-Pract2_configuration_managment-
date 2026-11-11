@@ -1,21 +1,36 @@
+
 """Загрузка тестового и удалённого Cargo-репозитория."""
 
 import json
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 import yaml
+
+
+CARGO_INDEX_URL = "https://index.crates.io/"
+CARGO_USER_AGENT = "dependency-visualizer/1.0"
+REQUEST_TIMEOUT = 20
+
+SINGLE_CHARACTER_NAME_LENGTH = 1
+TWO_CHARACTER_NAME_LENGTH = 2
+THREE_CHARACTER_NAME_LENGTH = 3
+VERSION_PARTS_COUNT = 3
+
+SUPPORTED_DEPENDENCY_KINDS = (None, "normal", "build")
 
 
 class RepositoryError(ValueError):
     """Ошибка формата или содержимого репозитория."""
 
 
-def load_repository(path: str | Path) -> dict[str, dict[str, Any]]:
-    """Загружает пакеты из YAML-файла тестового репозитория."""
+# Загрузка тестового YAML-репозитория
+
+
+def _read_repository_file(path: str | Path) -> Any:
+    """Читает YAML-файл репозитория."""
     repository_path = Path(path)
 
     if not repository_path.is_file():
@@ -25,7 +40,7 @@ def load_repository(path: str | Path) -> dict[str, dict[str, Any]]:
 
     try:
         with repository_path.open("r", encoding="utf-8") as file:
-            data = yaml.safe_load(file)
+            return yaml.safe_load(file)
     except yaml.YAMLError as exc:
         raise RepositoryError(f"Некорректный YAML: {exc}") from exc
     except OSError as exc:
@@ -33,6 +48,9 @@ def load_repository(path: str | Path) -> dict[str, dict[str, Any]]:
             f"Не удалось прочитать репозиторий: {exc}"
         ) from exc
 
+
+def _extract_packages(data: Any) -> dict[str, dict[str, Any]]:
+    """Проверяет корневую структуру и извлекает пакеты."""
     if not isinstance(data, dict):
         raise RepositoryError(
             "Корень репозитория должен быть словарём."
@@ -45,36 +63,45 @@ def load_repository(path: str | Path) -> dict[str, dict[str, Any]]:
             "Репозиторий должен содержать непустой словарь packages."
         )
 
-    for name, package in packages.items():
-        if not isinstance(name, str) or not name.strip():
+    return packages
+
+
+def _validate_package(name: str, package: Any) -> None:
+    """Проверяет описание одного пакета."""
+    if not isinstance(name, str) or not name.strip():
+        raise RepositoryError(
+            "Имя пакета должно быть непустой строкой."
+        )
+
+    if not isinstance(package, dict):
+        raise RepositoryError(
+            f"Описание пакета '{name}' должно быть словарём."
+        )
+
+    version = package.get("version")
+    dependencies = package.get("dependencies")
+
+    if not isinstance(version, str) or not version.strip():
+        raise RepositoryError(
+            f"У пакета '{name}' отсутствует корректная version."
+        )
+
+    if not isinstance(dependencies, list):
+        raise RepositoryError(
+            f"Зависимости пакета '{name}' должны быть списком."
+        )
+
+    for dependency in dependencies:
+        if not isinstance(dependency, str) or not dependency.strip():
             raise RepositoryError(
-                "Имя пакета должно быть непустой строкой."
+                f"Некорректная зависимость пакета '{name}'."
             )
 
-        if not isinstance(package, dict):
-            raise RepositoryError(
-                f"Описание пакета '{name}' должно быть словарём."
-            )
 
-        version = package.get("version")
-        dependencies = package.get("dependencies")
-
-        if not isinstance(version, str) or not version.strip():
-            raise RepositoryError(
-                f"У пакета '{name}' отсутствует корректная version."
-            )
-
-        if not isinstance(dependencies, list):
-            raise RepositoryError(
-                f"Зависимости пакета '{name}' должны быть списком."
-            )
-
-        for dependency in dependencies:
-            if not isinstance(dependency, str) or not dependency.strip():
-                raise RepositoryError(
-                    f"Некорректная зависимость пакета '{name}'."
-                )
-
+def _validate_dependency_references(
+    packages: dict[str, dict[str, Any]],
+) -> None:
+    """Проверяет наличие всех указанных зависимостей."""
     for name, package in packages.items():
         for dependency in package["dependencies"]:
             if dependency not in packages:
@@ -83,48 +110,41 @@ def load_repository(path: str | Path) -> dict[str, dict[str, Any]]:
                     f"пакета '{dependency}'."
                 )
 
+
+def load_repository(path: str | Path) -> dict[str, dict[str, Any]]:
+    """Загружает и проверяет YAML-репозиторий."""
+    data = _read_repository_file(path)
+    packages = _extract_packages(data)
+
+    for name, package in packages.items():
+        _validate_package(name, package)
+
+    _validate_dependency_references(packages)
+
     return packages
+
+
+# Работа с Cargo Sparse Index
 
 
 def _cargo_index_path(package_name: str) -> str:
     """Формирует путь пакета в Sparse Index Cargo."""
     name = package_name.lower()
 
-    if len(name) == 1:
+    if len(name) == SINGLE_CHARACTER_NAME_LENGTH:
         return f"1/{name}"
-    if len(name) == 2:
+
+    if len(name) == TWO_CHARACTER_NAME_LENGTH:
         return f"2/{name}"
-    if len(name) == 3:
+
+    if len(name) == THREE_CHARACTER_NAME_LENGTH:
         return f"3/{name[0]}/{name}"
 
     return f"{name[:2]}/{name[2:4]}/{name}"
 
 
-def _fetch_cargo_index(package_name: str) -> list[dict[str, Any]]:
-    """Загружает записи о версиях пакета из Sparse Index."""
-    url = (
-        "https://index.crates.io/"
-        + _cargo_index_path(package_name)
-    )
-
-    request = Request(
-        url,
-        headers={"User-Agent": "dependency-visualizer/1.0"},
-    )
-
-    try:
-        with urlopen(request, timeout=20) as response:
-            content = response.read().decode("utf-8")
-    except HTTPError as exc:
-        raise RepositoryError(
-            f"Ошибка HTTP {exc.code} при загрузке пакета "
-            f"'{package_name}' из Cargo Index."
-        ) from exc
-    except (URLError, TimeoutError, OSError) as exc:
-        raise RepositoryError(
-            f"Не удалось загрузить пакет '{package_name}': {exc}"
-        ) from exc
-
+def _parse_cargo_index(content: str, package_name: str) -> list[dict[str, Any]]:
+    """Преобразует строки Cargo Index в список записей."""
     records = []
 
     try:
@@ -144,21 +164,103 @@ def _fetch_cargo_index(package_name: str) -> list[dict[str, Any]]:
     return records
 
 
+def _fetch_cargo_index(package_name: str) -> list[dict[str, Any]]:
+    """Загружает записи о версиях пакета из Sparse Index."""
+    url = CARGO_INDEX_URL + _cargo_index_path(package_name)
+
+    request = Request(
+        url,
+        headers={"User-Agent": CARGO_USER_AGENT},
+    )
+
+    try:
+        with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+            content = response.read().decode("utf-8")
+    except HTTPError as exc:
+        raise RepositoryError(
+            f"Ошибка HTTP {exc.code} при загрузке пакета "
+            f"'{package_name}' из Cargo Index."
+        ) from exc
+    except (URLError, TimeoutError, OSError) as exc:
+        raise RepositoryError(
+            f"Не удалось загрузить пакет '{package_name}': {exc}"
+        ) from exc
+
+    return _parse_cargo_index(content, package_name)
+
+
+# Сравнение версий
+
+
 def _version_tuple(version: str) -> tuple[int, int, int]:
     """Преобразует номер версии в числовой кортеж."""
     parts = version.split("-")[0].split(".")
 
     try:
-        numbers = [int(part) for part in parts[:3]]
+        numbers = [
+            int(part)
+            for part in parts[:VERSION_PARTS_COUNT]
+        ]
     except ValueError as exc:
         raise RepositoryError(
             f"Неподдерживаемый формат версии: {version}"
         ) from exc
 
-    while len(numbers) < 3:
+    while len(numbers) < VERSION_PARTS_COUNT:
         numbers.append(0)
 
     return tuple(numbers)
+
+
+def _matches_caret(
+    actual: tuple[int, int, int],
+    requirement: str,
+) -> bool:
+    """Проверяет ограничение совместимости ^."""
+    requested = _version_tuple(requirement[1:])
+
+    if requested[0] > 0:
+        return actual >= requested and actual[0] == requested[0]
+
+    if requested[1] > 0:
+        return (
+            actual >= requested
+            and actual[0] == 0
+            and actual[1] == requested[1]
+        )
+
+    return actual == requested
+
+
+def _matches_tilde(
+    actual: tuple[int, int, int],
+    requirement: str,
+) -> bool:
+    """Проверяет ограничение совместимости ~."""
+    requested = _version_tuple(requirement[1:])
+
+    return (
+        actual >= requested
+        and actual[0] == requested[0]
+        and actual[1] == requested[1]
+    )
+
+
+def _matches_wildcard(
+    actual: tuple[int, int, int],
+    requirement: str,
+) -> bool:
+    """Проверяет ограничение версии с подстановочными знаками."""
+    parts = requirement.lower().replace("x", "*").split(".")
+
+    for index, part in enumerate(parts):
+        if part == "*":
+            return True
+
+        if index >= len(actual) or int(part) != actual[index]:
+            return False
+
+    return True
 
 
 def _version_matches(version: str, requirement: str) -> bool:
@@ -170,27 +272,10 @@ def _version_matches(version: str, requirement: str) -> bool:
         return True
 
     if requirement.startswith("^"):
-        requested = _version_tuple(requirement[1:])
-
-        if requested[0] > 0:
-            return actual >= requested and actual[0] == requested[0]
-
-        if requested[1] > 0:
-            return (
-                actual >= requested
-                and actual[0] == 0
-                and actual[1] == requested[1]
-            )
-
-        return actual == requested
+        return _matches_caret(actual, requirement)
 
     if requirement.startswith("~"):
-        requested = _version_tuple(requirement[1:])
-        return (
-            actual >= requested
-            and actual[0] == requested[0]
-            and actual[1] == requested[1]
-        )
+        return _matches_tilde(actual, requirement)
 
     if requirement.startswith(">="):
         return actual >= _version_tuple(requirement[2:])
@@ -208,16 +293,7 @@ def _version_matches(version: str, requirement: str) -> bool:
         return actual == _version_tuple(requirement[1:])
 
     if "*" in requirement or "x" in requirement.lower():
-        parts = requirement.lower().replace("x", "*").split(".")
-
-        for index, part in enumerate(parts):
-            if part == "*":
-                return True
-
-            if index >= len(actual) or int(part) != actual[index]:
-                return False
-
-        return True
+        return _matches_wildcard(actual, requirement)
 
     return actual == _version_tuple(requirement)
 
@@ -248,17 +324,14 @@ def _select_version(
     )
 
 
-def load_cargo_repository(
-    repository_url: str,
-    package_name: str,
-    version: str,
-    max_depth: int = 2,
-) -> dict[str, dict[str, Any]]:
-    """Загружает версии пакетов Cargo до заданной глубины.
+# Построение удалённого Cargo-репозитория
 
-    Идентификатор каждой вершины включает имя и версию.
-    Поэтому разные версии одной библиотеки не объединяются.
-    """
+
+def _validate_cargo_arguments(
+    repository_url: str,
+    max_depth: int,
+) -> None:
+    """Проверяет URL репозитория и максимальную глубину."""
     if not isinstance(max_depth, int) or isinstance(max_depth, bool):
         raise RepositoryError("max_depth должен быть целым числом.")
 
@@ -273,6 +346,119 @@ def load_cargo_repository(
             "Для удалённого режима укажите репозиторий crates.io."
         )
 
+
+def _is_supported_dependency(dependency: dict[str, Any]) -> bool:
+    """Проверяет, нужно ли учитывать зависимость Cargo."""
+    if dependency.get("kind") not in SUPPORTED_DEPENDENCY_KINDS:
+        return False
+
+    if dependency.get("optional", False):
+        return False
+
+    if dependency.get("target") is not None:
+        return False
+
+    return isinstance(dependency.get("name"), str)
+
+
+def _resolve_dependency(
+    dependency: dict[str, Any],
+) -> dict[str, Any]:
+    """Находит подходящую версию зависимости."""
+    dependency_name = dependency["name"]
+    requirement = dependency.get("req", "*")
+
+    record = _select_version(dependency_name, requirement)
+
+    return {
+        "name": dependency_name,
+        "version": record["vers"],
+        "id": f"{dependency_name}@{record['vers']}",
+    }
+
+
+def _collect_dependencies(
+    selected: dict[str, Any],
+    depth: int,
+    max_depth: int,
+    processed: set[str],
+    pending: list[tuple[str, str, int]],
+) -> list[str]:
+    """Собирает зависимости пакета и добавляет их в очередь."""
+    dependencies = []
+    dependency_ids = set()
+
+    for dependency in selected.get("deps", []):
+        if not _is_supported_dependency(dependency):
+            continue
+
+        if depth >= max_depth:
+            continue
+
+        resolved = _resolve_dependency(dependency)
+        dependency_id = resolved["id"]
+
+        if dependency_id not in dependency_ids:
+            dependency_ids.add(dependency_id)
+            dependencies.append(dependency_id)
+
+        if dependency_id not in processed:
+            pending.append((
+                resolved["name"],
+                f"={resolved['version']}",
+                depth + 1,
+            ))
+
+    return dependencies
+
+
+def _load_cargo_package(
+    current_name: str,
+    required_version: str,
+    depth: int,
+    max_depth: int,
+    packages: dict[str, dict[str, Any]],
+    processed: set[str],
+    pending: list[tuple[str, str, int]],
+) -> None:
+    """Загружает один пакет и обрабатывает его зависимости."""
+    selected = _select_version(current_name, required_version)
+    selected_version = selected["vers"]
+    package_id = f"{current_name}@{selected_version}"
+
+    if package_id in processed:
+        return
+
+    processed.add(package_id)
+
+    dependencies = _collect_dependencies(
+        selected,
+        depth,
+        max_depth,
+        processed,
+        pending,
+    )
+
+    packages[package_id] = {
+        "name": current_name,
+        "version": selected_version,
+        "dependencies": dependencies,
+    }
+
+
+def load_cargo_repository(
+    repository_url: str,
+    package_name: str,
+    version: str,
+    max_depth: int = 2,
+) -> dict[str, dict[str, Any]]:
+    """Загружает версии пакетов Cargo до заданной глубины.
+
+    Идентификатор каждой вершины включает имя и версию.
+    Поэтому разные версии одной библиотеки не объединяются.
+    """
+    _validate_cargo_arguments(repository_url, max_depth)
+
     root_record = _select_version(package_name, f"={version}")
     root_id = f"{package_name}@{root_record['vers']}"
 
@@ -283,61 +469,15 @@ def load_cargo_repository(
     while pending:
         current_name, required_version, depth = pending.pop()
 
-        selected = _select_version(current_name, required_version)
-        selected_version = selected["vers"]
-        package_id = f"{current_name}@{selected_version}"
-
-        if package_id in processed:
-            continue
-
-        processed.add(package_id)
-
-        dependencies = []
-        dependency_ids = set()
-
-        for dependency in selected.get("deps", []):
-            if dependency.get("kind") not in (None, "normal", "build"):
-                continue
-
-            if dependency.get("optional", False):
-                continue
-
-            if dependency.get("target") is not None:
-                continue
-
-            dependency_name = dependency.get("name")
-            dependency_requirement = dependency.get("req", "*")
-
-            if not isinstance(dependency_name, str):
-                continue
-
-            if depth < max_depth:
-                dependency_record = _select_version(
-                    dependency_name,
-                    dependency_requirement,
-                )
-                dependency_id = (
-                    f"{dependency_name}@{dependency_record['vers']}"
-                )
-            else:
-                continue
-
-            if dependency_id not in dependency_ids:
-                dependency_ids.add(dependency_id)
-                dependencies.append(dependency_id)
-
-            if dependency_id not in processed:
-                pending.append((
-                    dependency_name,
-                    f"={dependency_record['vers']}",
-                    depth + 1,
-                ))
-
-        packages[package_id] = {
-            "name": current_name,
-            "version": selected_version,
-            "dependencies": dependencies,
-        }
+        _load_cargo_package(
+            current_name,
+            required_version,
+            depth,
+            max_depth,
+            packages,
+            processed,
+            pending,
+        )
 
     if root_id not in packages:
         raise RepositoryError(
