@@ -1,4 +1,4 @@
-import xml.etree.ElementTree as ElementTree
+from xml.etree.ElementTree import parse
 
 import pytest
 
@@ -49,7 +49,7 @@ def test_render_graph_creates_valid_xml(graph, tmp_path):
 
     render_graph(graph, output)
 
-    tree = ElementTree.parse(output)
+    tree = parse(output)
 
     assert tree.getroot().tag.endswith("svg")
 
@@ -173,7 +173,7 @@ def test_render_graph_escapes_special_characters(tmp_path):
 
     render_graph(special_graph, output)
 
-    tree = ElementTree.parse(output)
+    tree = parse(output)
 
     assert tree.getroot().tag.endswith("svg")
 

@@ -2,7 +2,12 @@
 
 from pathlib import Path
 from typing import Any
-import xml.etree.ElementTree as xml_et
+from xml.etree.ElementTree import (
+    Element,
+    ElementTree as et_tree,
+    SubElement,
+    register_namespace,
+)
 
 
 NODE_WIDTH = 180
@@ -38,7 +43,7 @@ ARROW_MARKER_REF_X = 8
 ARROW_MARKER_REF_Y = 3
 ARROW_MARKER_PATH = "M0,0 L0,6 L9,3 z"
 
-xml_et.register_namespace("", SVG_NAMESPACE)
+register_namespace("", SVG_NAMESPACE)
 
 
 class SVGRenderError(ValueError):
@@ -269,7 +274,7 @@ def _back_edge_path(
 
 
 def _draw_edges(
-    svg: xml_et.Element,
+    svg: Element,
     edges: list[dict[str, Any]],
     positions: dict[str, tuple[int, int]],
     node_map: dict[str, dict[str, Any]],
@@ -287,7 +292,7 @@ def _draw_edges(
         else:
             path = _back_edge_path(source_pos, target_pos)
 
-        xml_et.SubElement(
+        SubElement(
             svg,
             _tag("path"),
             {
@@ -312,7 +317,7 @@ def _node_colors(
 
 
 def _draw_node_rect(
-    svg: xml_et.Element,
+    svg: Element,
     position: tuple[int, int],
     fill: str,
     stroke: str,
@@ -320,7 +325,7 @@ def _draw_node_rect(
     """Рисует прямоугольник вершины."""
     x, y = position
 
-    xml_et.SubElement(
+    SubElement(
         svg,
         _tag("rect"),
         {
@@ -337,7 +342,7 @@ def _draw_node_rect(
 
 
 def _draw_node_labels(
-    svg: xml_et.Element,
+    svg: Element,
     node: dict[str, Any],
     position: tuple[int, int],
     text_color: str,
@@ -356,7 +361,7 @@ def _draw_node_labels(
     )
 
     for text, offset, font_size in labels:
-        element = xml_et.SubElement(
+        element = SubElement(
             svg,
             _tag("text"),
             {
@@ -371,7 +376,7 @@ def _draw_node_labels(
 
 
 def _draw_nodes(
-    svg: xml_et.Element,
+    svg: Element,
     node_map: dict[str, dict[str, Any]],
     root_id: str,
     positions: dict[str, tuple[int, int]],
@@ -387,7 +392,7 @@ def _draw_nodes(
 
 def _save_file(
     output_path: str | Path,
-    content: str | xml_et.Element,
+    content: str | Element,
 ) -> Path:
     """Сохраняет текстовый или SVG-файл."""
     output = Path(output_path)
@@ -398,7 +403,7 @@ def _save_file(
         if isinstance(content, str):
             output.write_text(content, encoding="utf-8")
         else:
-            xml_et.ElementTree(content).write(
+            et_tree(content).write(
                 output,
                 encoding="utf-8",
                 xml_declaration=True,
@@ -411,9 +416,9 @@ def _save_file(
     return output
 
 
-def _create_svg_root(width: int, height: int) -> xml_et.Element:
+def _create_svg_root(width: int, height: int) -> Element:
     """Создаёт корневой SVG-элемент."""
-    return xml_et.Element(
+    return Element(
         _tag("svg"),
         {
             "width": str(width),
@@ -425,21 +430,21 @@ def _create_svg_root(width: int, height: int) -> xml_et.Element:
 
 
 def _add_title(
-    svg: xml_et.Element,
+    svg: Element,
     node_map: dict[str, dict[str, Any]],
     root_id: str,
 ) -> None:
     """Добавляет заголовок SVG."""
-    title = xml_et.SubElement(svg, _tag("title"))
+    title = SubElement(svg, _tag("title"))
     title.text = (
         f"Граф зависимостей пакета {node_map[root_id]['name']}"
     )
 
 
-def _add_arrow_marker(svg: xml_et.Element) -> None:
+def _add_arrow_marker(svg: Element) -> None:
     """Добавляет маркер стрелки в defs."""
-    definitions = xml_et.SubElement(svg, _tag("defs"))
-    marker = xml_et.SubElement(
+    definitions = SubElement(svg, _tag("defs"))
+    marker = SubElement(
         definitions,
         _tag("marker"),
         {
@@ -452,7 +457,7 @@ def _add_arrow_marker(svg: xml_et.Element) -> None:
         },
     )
 
-    xml_et.SubElement(
+    SubElement(
         marker,
         _tag("path"),
         {
