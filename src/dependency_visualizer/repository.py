@@ -1,4 +1,3 @@
-
 """Загрузка тестового и удалённого Cargo-репозитория."""
 
 import json
@@ -18,6 +17,26 @@ SINGLE_CHARACTER_NAME_LENGTH = 1
 TWO_CHARACTER_NAME_LENGTH = 2
 THREE_CHARACTER_NAME_LENGTH = 3
 VERSION_PARTS_COUNT = 3
+
+INDEX_SHORT_NAME_PREFIX = "1"
+INDEX_TWO_NAME_PREFIX = "2"
+INDEX_THREE_NAME_PREFIX = "3"
+INDEX_FIRST_SLICE_END = 2
+INDEX_SECOND_SLICE_START = 2
+INDEX_SECOND_SLICE_END = 4
+
+CARET_PREFIX = "^"
+TILDE_PREFIX = "~"
+GREATER_EQUAL_PREFIX = ">="
+LESS_EQUAL_PREFIX = "<="
+GREATER_PREFIX = ">"
+LESS_PREFIX = "<"
+EXACT_PREFIX = "="
+WILDCARD_CHARS = ("*", "x")
+EMPTY_REQUIREMENT = ("", "*")
+
+MAJOR_INDEX = 0
+MINOR_INDEX = 1
 
 SUPPORTED_DEPENDENCY_KINDS = (None, "normal", "build")
 
@@ -130,20 +149,26 @@ def load_repository(path: str | Path) -> dict[str, dict[str, Any]]:
 def _cargo_index_path(package_name: str) -> str:
     """Формирует путь пакета в Sparse Index Cargo."""
     name = package_name.lower()
+    length = len(name)
 
-    if len(name) == SINGLE_CHARACTER_NAME_LENGTH:
-        return f"1/{name}"
+    if length == SINGLE_CHARACTER_NAME_LENGTH:
+        return f"{INDEX_SHORT_NAME_PREFIX}/{name}"
 
-    if len(name) == TWO_CHARACTER_NAME_LENGTH:
-        return f"2/{name}"
+    if length == TWO_CHARACTER_NAME_LENGTH:
+        return f"{INDEX_TWO_NAME_PREFIX}/{name}"
 
-    if len(name) == THREE_CHARACTER_NAME_LENGTH:
-        return f"3/{name[0]}/{name}"
+    if length == THREE_CHARACTER_NAME_LENGTH:
+        return f"{INDEX_THREE_NAME_PREFIX}/{name[0]}/{name}"
 
-    return f"{name[:2]}/{name[2:4]}/{name}"
+    first = name[:INDEX_FIRST_SLICE_END]
+    second = name[INDEX_SECOND_SLICE_START:INDEX_SECOND_SLICE_END]
+    return f"{first}/{second}/{name}"
 
 
-def _parse_cargo_index(content: str, package_name: str) -> list[dict[str, Any]]:
+def _parse_cargo_index(
+    content: str,
+    package_name: str,
+) -> list[dict[str, Any]]:
     """Преобразует строки Cargo Index в список записей."""
     records = []
 
@@ -217,16 +242,19 @@ def _matches_caret(
     requirement: str,
 ) -> bool:
     """Проверяет ограничение совместимости ^."""
-    requested = _version_tuple(requirement[1:])
+    requested = _version_tuple(requirement[len(CARET_PREFIX):])
 
-    if requested[0] > 0:
-        return actual >= requested and actual[0] == requested[0]
-
-    if requested[1] > 0:
+    if requested[MAJOR_INDEX] > 0:
         return (
             actual >= requested
-            and actual[0] == 0
-            and actual[1] == requested[1]
+            and actual[MAJOR_INDEX] == requested[MAJOR_INDEX]
+        )
+
+    if requested[MINOR_INDEX] > 0:
+        return (
+            actual >= requested
+            and actual[MAJOR_INDEX] == 0
+            and actual[MINOR_INDEX] == requested[MINOR_INDEX]
         )
 
     return actual == requested
@@ -237,12 +265,12 @@ def _matches_tilde(
     requirement: str,
 ) -> bool:
     """Проверяет ограничение совместимости ~."""
-    requested = _version_tuple(requirement[1:])
+    requested = _version_tuple(requirement[len(TILDE_PREFIX):])
 
     return (
         actual >= requested
-        and actual[0] == requested[0]
-        and actual[1] == requested[1]
+        and actual[MAJOR_INDEX] == requested[MAJOR_INDEX]
+        and actual[MINOR_INDEX] == requested[MINOR_INDEX]
     )
 
 
@@ -251,7 +279,11 @@ def _matches_wildcard(
     requirement: str,
 ) -> bool:
     """Проверяет ограничение версии с подстановочными знаками."""
-    parts = requirement.lower().replace("x", "*").split(".")
+    parts = (
+        requirement.lower()
+        .replace("x", "*")
+        .split(".")
+    )
 
     for index, part in enumerate(parts):
         if part == "*":
@@ -263,36 +295,62 @@ def _matches_wildcard(
     return True
 
 
+def _compare_prefix(
+    actual: tuple[int, int, int],
+    requirement: str,
+    prefix: str,
+    comparator,
+) -> bool:
+    """Сравнивает версию с требованием по префиксу."""
+    requested = _version_tuple(requirement[len(prefix):])
+    return comparator(actual, requested)
+
+
 def _version_matches(version: str, requirement: str) -> bool:
     """Проверяет распространённые ограничения версий Cargo."""
     actual = _version_tuple(version)
     requirement = requirement.strip()
 
-    if requirement in ("", "*"):
+    if requirement in EMPTY_REQUIREMENT:
         return True
 
-    if requirement.startswith("^"):
+    if requirement.startswith(CARET_PREFIX):
         return _matches_caret(actual, requirement)
 
-    if requirement.startswith("~"):
+    if requirement.startswith(TILDE_PREFIX):
         return _matches_tilde(actual, requirement)
 
-    if requirement.startswith(">="):
-        return actual >= _version_tuple(requirement[2:])
+    if requirement.startswith(GREATER_EQUAL_PREFIX):
+        return _compare_prefix(
+            actual, requirement, GREATER_EQUAL_PREFIX,
+            lambda a, b: a >= b,
+        )
 
-    if requirement.startswith("<="):
-        return actual <= _version_tuple(requirement[2:])
+    if requirement.startswith(LESS_EQUAL_PREFIX):
+        return _compare_prefix(
+            actual, requirement, LESS_EQUAL_PREFIX,
+            lambda a, b: a <= b,
+        )
 
-    if requirement.startswith(">"):
-        return actual > _version_tuple(requirement[1:])
+    if requirement.startswith(GREATER_PREFIX):
+        return _compare_prefix(
+            actual, requirement, GREATER_PREFIX,
+            lambda a, b: a > b,
+        )
 
-    if requirement.startswith("<"):
-        return actual < _version_tuple(requirement[1:])
+    if requirement.startswith(LESS_PREFIX):
+        return _compare_prefix(
+            actual, requirement, LESS_PREFIX,
+            lambda a, b: a < b,
+        )
 
-    if requirement.startswith("="):
-        return actual == _version_tuple(requirement[1:])
+    if requirement.startswith(EXACT_PREFIX):
+        return _compare_prefix(
+            actual, requirement, EXACT_PREFIX,
+            lambda a, b: a == b,
+        )
 
-    if "*" in requirement or "x" in requirement.lower():
+    if any(ch in requirement.lower() for ch in WILDCARD_CHARS):
         return _matches_wildcard(actual, requirement)
 
     return actual == _version_tuple(requirement)
@@ -333,10 +391,14 @@ def _validate_cargo_arguments(
 ) -> None:
     """Проверяет URL репозитория и максимальную глубину."""
     if not isinstance(max_depth, int) or isinstance(max_depth, bool):
-        raise RepositoryError("max_depth должен быть целым числом.")
+        raise RepositoryError(
+            "max_depth должен быть целым числом."
+        )
 
     if max_depth < 0:
-        raise RepositoryError("max_depth не может быть отрицательным.")
+        raise RepositoryError(
+            "max_depth не может быть отрицательным."
+        )
 
     if (
         "index.crates.io" not in repository_url
@@ -386,13 +448,13 @@ def _collect_dependencies(
 ) -> list[str]:
     """Собирает зависимости пакета и добавляет их в очередь."""
     dependencies = []
-    dependency_ids = set()
+    dependency_ids: set[str] = set()
+
+    if depth >= max_depth:
+        return dependencies
 
     for dependency in selected.get("deps", []):
         if not _is_supported_dependency(dependency):
-            continue
-
-        if depth >= max_depth:
             continue
 
         resolved = _resolve_dependency(dependency)
@@ -410,6 +472,21 @@ def _collect_dependencies(
             ))
 
     return dependencies
+
+
+def _store_package(
+    packages: dict[str, dict[str, Any]],
+    package_id: str,
+    name: str,
+    version: str,
+    dependencies: list[str],
+) -> None:
+    """Сохраняет описание пакета в словарь packages."""
+    packages[package_id] = {
+        "name": name,
+        "version": version,
+        "dependencies": dependencies,
+    }
 
 
 def _load_cargo_package(
@@ -439,11 +516,13 @@ def _load_cargo_package(
         pending,
     )
 
-    packages[package_id] = {
-        "name": current_name,
-        "version": selected_version,
-        "dependencies": dependencies,
-    }
+    _store_package(
+        packages,
+        package_id,
+        current_name,
+        selected_version,
+        dependencies,
+    )
 
 
 def load_cargo_repository(
@@ -464,7 +543,7 @@ def load_cargo_repository(
 
     packages: dict[str, dict[str, Any]] = {}
     pending = [(package_name, f"={version}", 0)]
-    processed = set()
+    processed: set[str] = set()
 
     while pending:
         current_name, required_version, depth = pending.pop()

@@ -6,6 +6,10 @@ from dependency_visualizer.analyzer import (
 )
 
 
+EXPECTED_DEPTH_ONE = 1
+EXPECTED_DEPTH_TWO = 2
+
+
 @pytest.fixture
 def packages():
     return {
@@ -55,9 +59,9 @@ def test_dependency_depth(packages):
 
     depths = {item["name"]: item["depth"] for item in result}
 
-    assert depths["syn"] == 1
-    assert depths["quote"] == 1
-    assert depths["unicode-ident"] == 2
+    assert depths["syn"] == EXPECTED_DEPTH_ONE
+    assert depths["quote"] == EXPECTED_DEPTH_ONE
+    assert depths["unicode-ident"] == EXPECTED_DEPTH_TWO
 
 
 def test_missing_package(packages):
@@ -66,7 +70,9 @@ def test_missing_package(packages):
 
 
 def test_negative_max_depth(packages):
-    with pytest.raises(DependencyAnalysisError, match="отрицательным"):
+    with pytest.raises(
+        DependencyAnalysisError, match="отрицательным"
+    ):
         analyze_dependencies(packages, "serde", -1)
 
 

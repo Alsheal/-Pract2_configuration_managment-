@@ -1,5 +1,4 @@
-
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ElementTree
 
 import pytest
 
@@ -10,26 +9,18 @@ from dependency_visualizer.renderer import (
 )
 
 
+SVG_PATH_COUNT_WITH_ARROW = 4
+MERMAID_EDGE_COUNT = 3
+
+
 @pytest.fixture
 def graph():
     return {
         "root": "serde",
         "nodes": [
-            {
-                "name": "serde",
-                "version": "1.0.0",
-                "depth": 0,
-            },
-            {
-                "name": "syn",
-                "version": "2.0.0",
-                "depth": 1,
-            },
-            {
-                "name": "quote",
-                "version": "1.0.0",
-                "depth": 1,
-            },
+            {"name": "serde", "version": "1.0.0", "depth": 0},
+            {"name": "syn", "version": "2.0.0", "depth": 1},
+            {"name": "quote", "version": "1.0.0", "depth": 1},
             {
                 "name": "unicode-ident",
                 "version": "1.0.0",
@@ -58,7 +49,7 @@ def test_render_graph_creates_valid_xml(graph, tmp_path):
 
     render_graph(graph, output)
 
-    tree = ET.parse(output)
+    tree = ElementTree.parse(output)
 
     assert tree.getroot().tag.endswith("svg")
 
@@ -95,7 +86,7 @@ def test_svg_contains_edges(graph, tmp_path):
     content = output.read_text(encoding="utf-8")
 
     assert "marker-end" in content
-    assert content.count("<path") == 4
+    assert content.count("<path") == SVG_PATH_COUNT_WITH_ARROW
 
 
 def test_svg_contains_depth_information(graph, tmp_path):
@@ -133,11 +124,7 @@ def test_render_graph_rejects_missing_root(tmp_path):
     invalid_graph = {
         "root": "serde",
         "nodes": [
-            {
-                "name": "syn",
-                "version": "2.0.0",
-                "depth": 1,
-            }
+            {"name": "syn", "version": "2.0.0", "depth": 1}
         ],
         "edges": [],
     }
@@ -159,16 +146,8 @@ def test_render_graph_rejects_duplicate_nodes(tmp_path):
     invalid_graph = {
         "root": "serde",
         "nodes": [
-            {
-                "name": "serde",
-                "version": "1.0.0",
-                "depth": 0,
-            },
-            {
-                "name": "serde",
-                "version": "2.0.0",
-                "depth": 1,
-            },
+            {"name": "serde", "version": "1.0.0", "depth": 0},
+            {"name": "serde", "version": "2.0.0", "depth": 1},
         ],
         "edges": [],
     }
@@ -194,9 +173,7 @@ def test_render_graph_escapes_special_characters(tmp_path):
 
     render_graph(special_graph, output)
 
-    tree = ET.parse(output)
-
-    tree = ET.parse(output)
+    tree = ElementTree.parse(output)
 
     assert tree.getroot().tag.endswith("svg")
 
@@ -207,6 +184,8 @@ def test_render_graph_escapes_special_characters(tmp_path):
     ]
 
     assert "lib&core" in text_values
+
+
 def test_render_mermaid_creates_file(graph, tmp_path):
     output = tmp_path / "dependencies.mmd"
 
@@ -240,7 +219,7 @@ def test_mermaid_contains_edges(graph, tmp_path):
     content = output.read_text(encoding="utf-8")
 
     assert " --> " in content
-    assert content.count(" --> ") == 3
+    assert content.count(" --> ") == MERMAID_EDGE_COUNT
 
 
 def test_render_mermaid_creates_parent_directory(

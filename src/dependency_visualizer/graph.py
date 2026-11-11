@@ -1,4 +1,3 @@
-
 """Построение и анализ графа зависимостей."""
 
 from typing import Any
@@ -7,6 +6,13 @@ from dependency_visualizer.analyzer import (
     DependencyAnalysisError,
     analyze_dependencies,
 )
+
+
+UNVISITED = 0
+VISITING = 1
+VISITED = 2
+
+ROOT_DEPTH = 0
 
 
 class DependencyGraphError(ValueError):
@@ -18,14 +24,14 @@ def _create_nodes(
     package_name: str,
     dependencies: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Создаёт вершины графа."""
+    """Создаёт вершины графа, включая исходный пакет."""
     root_package = packages[package_name]
 
     root_node = {
         "id": package_name,
         "name": root_package.get("name", package_name),
         "version": root_package["version"],
-        "depth": 0,
+        "depth": ROOT_DEPTH,
     }
 
     return [root_node, *dependencies]
@@ -35,7 +41,7 @@ def _create_edges(
     packages: dict[str, dict[str, Any]],
     nodes: list[dict[str, Any]],
 ) -> list[dict[str, str]]:
-    """Создаёт уникальные рёбра между найденными вершинами."""
+    """Создаёт уникальные рёбра между вершинами графа."""
     node_ids = {node["id"] for node in nodes}
     edges = []
     seen_edges = set()
@@ -63,7 +69,7 @@ def build_dependency_graph(
     package_name: str,
     max_depth: int,
 ) -> dict[str, Any]:
-    """Строит направленный граф зависимостей выбранного пакета."""
+    """Строит направленный граф зависимостей."""
     try:
         dependencies = analyze_dependencies(
             packages,
@@ -84,11 +90,14 @@ def build_dependency_graph(
 
 
 def _build_adjacency(
-    nodes: dict[str, dict[str, Any]],
+    node_ids: set[str],
     edges: list[dict[str, str]],
 ) -> dict[str, list[str]]:
-    """Создаёт список смежности графа."""
-    adjacency = {package_id: [] for package_id in nodes}
+    """Формирует список смежности графа."""
+    adjacency = {
+        package_id: []
+        for package_id in node_ids
+    }
 
     for edge in edges:
         adjacency[edge["source"]].append(edge["target"])
@@ -96,17 +105,40 @@ def _build_adjacency(
     return adjacency
 
 
+def _visit_dependency(
+    state: dict[str, int],
+    stack: list[list],
+    dependency: str,
+    cycles: list[tuple[str, str]],
+) -> None:
+    """Обрабатывает переход к зависимости в DFS."""
+    if state[dependency] == UNVISITED:
+        state[dependency] = VISITING
+        stack.append([dependency, 0])
+        return
+
+    if state[dependency] == VISITING:
+        source = stack[-1][0]
+        cycle = (source, dependency)
+
+        if cycle not in cycles:
+            cycles.append(cycle)
+
+
 def _traverse_graph(
     root: str,
     adjacency: dict[str, list[str]],
 ) -> tuple[list[str], list[tuple[str, str]]]:
-    """Выполняет итеративный DFS и находит циклические рёбра."""
-    state = {package_id: 0 for package_id in adjacency}
-    state[root] = 1
+    """Выполняет итеративный DFS и обнаруживает циклы."""
+    state = {
+        package_id: UNVISITED
+        for package_id in adjacency
+    }
 
+    state[root] = VISITING
     stack = [[root, 0]]
     order = []
-    cycles = []
+    cycles: list[tuple[str, str]] = []
 
     while stack:
         package_id, index = stack[-1]
@@ -114,21 +146,13 @@ def _traverse_graph(
 
         if index >= len(dependencies):
             stack.pop()
-            state[package_id] = 2
+            state[package_id] = VISITED
             order.append(package_id)
             continue
 
         dependency = dependencies[index]
         stack[-1][1] += 1
-
-        if state[dependency] == 0:
-            state[dependency] = 1
-            stack.append([dependency, 0])
-        elif state[dependency] == 1:
-            cycle = (package_id, dependency)
-
-            if cycle not in cycles:
-                cycles.append(cycle)
+        _visit_dependency(state, stack, dependency, cycles)
 
     return order, cycles
 
@@ -136,15 +160,25 @@ def _traverse_graph(
 def get_dependency_load_order(
     graph: dict[str, Any],
 ) -> dict[str, Any]:
-    """Определяет порядок загрузки с помощью итеративного DFS."""
-    nodes = {node["id"]: node for node in graph["nodes"]}
-    adjacency = _build_adjacency(nodes, graph["edges"])
+    """Возвращает порядок загрузки пакетов и найденные циклы."""
+    nodes = {
+        node["id"]: node
+        for node in graph["nodes"]
+    }
 
-    order, cycles = _traverse_graph(graph["root"], adjacency)
+    adjacency = _build_adjacency(
+        set(nodes),
+        graph["edges"],
+    )
+
+    order, cycles = _traverse_graph(
+        graph["root"],
+        adjacency,
+    )
 
     return {
         "order": [
-            nodes[package_id]["name"] + "@" + nodes[package_id]["version"]
+            f"{nodes[package_id]['name']}@{nodes[package_id]['version']}"
             for package_id in order
         ],
         "order_ids": order,

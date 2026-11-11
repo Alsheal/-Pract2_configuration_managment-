@@ -1,4 +1,3 @@
-
 """Точка входа CLI-приложения."""
 
 import argparse
@@ -41,13 +40,13 @@ def build_parser() -> argparse.ArgumentParser:
         "-c",
         "--config",
         default="config.yaml",
-        help="путь к YAML-конфигурации (по умолчанию: config.yaml)",
+        help="путь к YAML-конфигурации",
     )
     return parser
 
 
 def _print_configuration(config: AppConfig) -> None:
-    """Вывести параметры загруженной конфигурации."""
+    """Вывести параметры конфигурации."""
     print("Параметры конфигурации:")
     print(f"package_name: {config.package_name}")
     print(f"repository: {config.repository}")
@@ -61,7 +60,7 @@ def _print_configuration(config: AppConfig) -> None:
 
 
 def _load_packages(config: AppConfig) -> tuple[dict, str]:
-    """Загрузить пакеты и определить идентификатор корневого пакета."""
+    """Загрузить репозиторий и определить корневой пакет."""
     if config.test_repository_mode:
         packages = load_repository(config.repository)
         root_id = config.package_name
@@ -102,6 +101,24 @@ def _print_direct_dependencies(
         print(f"- {name} ({dependency['version']})")
 
 
+def _print_cycles(graph: dict, cycles: list) -> None:
+    """Вывести циклические связи между пакетами."""
+    print(
+        "\nОбнаружены циклические зависимости. "
+        "Порядок загрузки невозможен:"
+    )
+
+    node_map = {node["id"]: node for node in graph["nodes"]}
+
+    for source, target in cycles:
+        source_node = node_map[source]
+        target_node = node_map[target]
+        print(
+            f"- {source_node['name']}@{source_node['version']} -> "
+            f"{target_node['name']}@{target_node['version']}"
+        )
+
+
 def _print_load_order(graph: dict) -> None:
     """Вывести порядок загрузки или обнаруженные циклы."""
     result = get_dependency_load_order(graph)
@@ -115,45 +132,29 @@ def _print_load_order(graph: dict) -> None:
         print(f"{index}. {package}")
 
 
-def _print_cycles(graph: dict, cycles: list) -> None:
-    """Вывести циклические связи между пакетами."""
-    print(
-        "\nОбнаружены циклические зависимости. "
-        "Корректный порядок загрузки невозможен:"
-    )
-
-    node_map = {
-        node["id"]: node
-        for node in graph["nodes"]
-    }
-
-    for source, target in cycles:
-        source_node = node_map[source]
-        target_node = node_map[target]
-
-        print(
-            f"- {source_node['name']}@{source_node['version']} -> "
-            f"{target_node['name']}@{target_node['version']}"
-        )
-
-
 def _render_outputs(
     graph: dict,
     output_file: str,
 ) -> tuple[Path, Path]:
     """Создать SVG- и Mermaid-представления графа."""
     output_path = render_graph(graph, output_file)
-    mermaid_path = Path(output_file).with_suffix(".mmd")
-    mermaid_path = render_mermaid(graph, mermaid_path)
-
+    mermaid_path = render_mermaid(
+        graph,
+        Path(output_file).with_suffix(".mmd"),
+    )
     return output_path, mermaid_path
 
 
-def _run_pipeline(config: AppConfig) -> None:
-    """Выполнить этапы загрузки, анализа и визуализации."""
+def _stage_configuration(config: AppConfig) -> None:
+    """Выполнить этап 1: вывод и проверка конфигурации."""
     _print_configuration(config)
     print("\nЭтап 1 завершён: конфигурация корректна.")
 
+
+def _stage_repository(
+    config: AppConfig,
+) -> tuple[dict, str]:
+    """Выполнить этап 2: загрузка репозитория."""
     packages, root_id = _load_packages(config)
 
     print("\nЭтап 2 завершён: репозиторий загружен.")
@@ -164,6 +165,15 @@ def _run_pipeline(config: AppConfig) -> None:
         config.package_name,
     )
 
+    return packages, root_id
+
+
+def _stage_analysis(
+    config: AppConfig,
+    packages: dict,
+    root_id: str,
+) -> None:
+    """Выполнить этап 3: анализ зависимостей."""
     analysis = analyze_dependencies(
         packages,
         root_id,
@@ -173,6 +183,13 @@ def _run_pipeline(config: AppConfig) -> None:
     print("\nЭтап 3 завершён: анализ зависимостей выполнен.")
     print(f"Найдено транзитивных зависимостей: {len(analysis)}")
 
+
+def _stage_graph(
+    config: AppConfig,
+    packages: dict,
+    root_id: str,
+) -> dict:
+    """Выполнить этап 4: построение графа и порядок загрузки."""
     graph = build_dependency_graph(
         packages,
         root_id,
@@ -184,6 +201,14 @@ def _run_pipeline(config: AppConfig) -> None:
     print(f"Количество рёбер: {len(graph['edges'])}")
     _print_load_order(graph)
 
+    return graph
+
+
+def _stage_render(
+    config: AppConfig,
+    graph: dict,
+) -> None:
+    """Выполнить этап 5: рендеринг SVG и Mermaid."""
     output_path, mermaid_path = _render_outputs(
         graph,
         config.output_file,
@@ -194,10 +219,18 @@ def _run_pipeline(config: AppConfig) -> None:
     print(f"Mermaid-файл сохранён: {mermaid_path.resolve()}")
 
 
+def _run_pipeline(config: AppConfig) -> None:
+    """Выполнить загрузку, анализ и визуализацию зависимостей."""
+    _stage_configuration(config)
+    packages, root_id = _stage_repository(config)
+    _stage_analysis(config, packages, root_id)
+    graph = _stage_graph(config, packages, root_id)
+    _stage_render(config, graph)
+
+
 def main() -> int:
-    """Запустить приложение и обработать ошибки выполнения."""
-    parser = build_parser()
-    args = parser.parse_args()
+    """Запустить приложение и обработать ошибки."""
+    args = build_parser().parse_args()
 
     try:
         config = load_config(args.config)
@@ -215,7 +248,10 @@ def main() -> int:
         print(f"Ошибка выполнения: {error}", file=sys.stderr)
         return 1
     except OSError as error:
-        print(f"Ошибка работы с файлами: {error}", file=sys.stderr)
+        print(
+            f"Ошибка работы с файлами: {error}",
+            file=sys.stderr,
+        )
         return 1
 
 

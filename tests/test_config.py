@@ -6,6 +6,11 @@ import yaml
 from dependency_visualizer.config import ConfigError, load_config
 
 
+INVALID_REPOSITORY_VALUE = 42
+INVALID_MAX_DEPTH_VALUE = 1.5
+MAX_DEPTH = 3
+
+
 def valid_config(repository: str, test_mode: bool = True) -> dict:
     return {
         "package_name": "serde",
@@ -13,7 +18,7 @@ def valid_config(repository: str, test_mode: bool = True) -> dict:
         "test_repository_mode": test_mode,
         "version": "1.0.0",
         "output_file": "dependencies.svg",
-        "max_depth": 3,
+        "max_depth": MAX_DEPTH,
     }
 
 
@@ -39,7 +44,7 @@ def test_valid_test_config(tmp_path):
 
     assert config.package_name == "serde"
     assert config.test_repository_mode is True
-    assert config.max_depth == 3
+    assert config.max_depth == MAX_DEPTH
 
 
 def test_valid_remote_config(tmp_path):
@@ -97,7 +102,10 @@ def test_invalid_package_name(tmp_path, value):
         load_config(write_config(tmp_path, data))
 
 
-@pytest.mark.parametrize("value", ["", None, 42])
+@pytest.mark.parametrize(
+    "value",
+    ["", None, INVALID_REPOSITORY_VALUE],
+)
 def test_invalid_repository(tmp_path, value):
     data = valid_config("https://example.com/repo", False)
     data["repository"] = value
@@ -158,7 +166,7 @@ def test_invalid_output_file(tmp_path, value):
 
 @pytest.mark.parametrize(
     "value",
-    [-1, 1.5, "3", True, None],
+    [-1, INVALID_MAX_DEPTH_VALUE, "3", True, None],
 )
 def test_invalid_max_depth(tmp_path, value):
     data = valid_config("https://example.com/repo", False)
@@ -166,6 +174,7 @@ def test_invalid_max_depth(tmp_path, value):
 
     with pytest.raises(ConfigError, match="max_depth"):
         load_config(write_config(tmp_path, data))
+
 
 @pytest.mark.parametrize(
     "missing_key",
@@ -178,7 +187,10 @@ def test_invalid_max_depth(tmp_path, value):
         "max_depth",
     ],
 )
-def test_each_required_parameter_is_mandatory(tmp_path, missing_key):
+def test_each_required_parameter_is_mandatory(
+    tmp_path,
+    missing_key,
+):
     data = valid_config("https://example.com/repo", False)
     del data[missing_key]
 
