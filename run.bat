@@ -13,3 +13,4 @@ set PYTHONPATH=%CD%\src
 python -m dependency_visualizer.main --config config.yaml
 
 endlocal
+
