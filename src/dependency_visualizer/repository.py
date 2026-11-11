@@ -1,8 +1,9 @@
 """Загрузка тестового и удалённого Cargo-репозитория."""
 
 import json
+import operator
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -27,25 +28,25 @@ INDEX_SECOND_SLICE_END = 4
 
 CARET_PREFIX = "^"
 TILDE_PREFIX = "~"
-GREATER_EQUAL_PREFIX = ">="
-LESS_EQUAL_PREFIX = "<="
-GREATER_PREFIX = ">"
-LESS_PREFIX = "<"
-EXACT_PREFIX = "="
 WILDCARD_CHARS = ("*", "x")
 EMPTY_REQUIREMENT = ("", "*")
 
 MAJOR_INDEX = 0
 MINOR_INDEX = 1
 
+OPERATORS: tuple[tuple[str, Callable], ...] = (
+    (">=", operator.ge),
+    ("<=", operator.le),
+    (">", operator.gt),
+    ("<", operator.lt),
+    ("=", operator.eq),
+)
+
 SUPPORTED_DEPENDENCY_KINDS = (None, "normal", "build")
 
 
 class RepositoryError(ValueError):
     """Ошибка формата или содержимого репозитория."""
-
-
-# Загрузка тестового YAML-репозитория
 
 
 def _read_repository_file(path: str | Path) -> Any:
@@ -61,7 +62,9 @@ def _read_repository_file(path: str | Path) -> Any:
         with repository_path.open("r", encoding="utf-8") as file:
             return yaml.safe_load(file)
     except yaml.YAMLError as exc:
-        raise RepositoryError(f"Некорректный YAML: {exc}") from exc
+        raise RepositoryError(
+            f"Некорректный YAML: {exc}"
+        ) from exc
     except OSError as exc:
         raise RepositoryError(
             f"Не удалось прочитать репозиторий: {exc}"
@@ -143,9 +146,6 @@ def load_repository(path: str | Path) -> dict[str, dict[str, Any]]:
     return packages
 
 
-# Работа с Cargo Sparse Index
-
-
 def _cargo_index_path(package_name: str) -> str:
     """Формирует путь пакета в Sparse Index Cargo."""
     name = package_name.lower()
@@ -214,9 +214,6 @@ def _fetch_cargo_index(package_name: str) -> list[dict[str, Any]]:
     return _parse_cargo_index(content, package_name)
 
 
-# Сравнение версий
-
-
 def _version_tuple(version: str) -> tuple[int, int, int]:
     """Преобразует номер версии в числовой кортеж."""
     parts = version.split("-")[0].split(".")
@@ -279,11 +276,7 @@ def _matches_wildcard(
     requirement: str,
 ) -> bool:
     """Проверяет ограничение версии с подстановочными знаками."""
-    parts = (
-        requirement.lower()
-        .replace("x", "*")
-        .split(".")
-    )
+    parts = requirement.lower().replace("x", "*").split(".")
 
     for index, part in enumerate(parts):
         if part == "*":
@@ -295,15 +288,20 @@ def _matches_wildcard(
     return True
 
 
-def _compare_prefix(
+def _match_operator(
     actual: tuple[int, int, int],
     requirement: str,
-    prefix: str,
-    comparator,
-) -> bool:
-    """Сравнивает версию с требованием по префиксу."""
-    requested = _version_tuple(requirement[len(prefix):])
-    return comparator(actual, requested)
+) -> bool | None:
+    """Применяет оператор сравнения версий.
+
+    Возвращает True/False при распознанном префиксе,
+    либо None, если префикс не является оператором.
+    """
+    for prefix, comparator in OPERATORS:
+        if requirement.startswith(prefix):
+            requested = _version_tuple(requirement[len(prefix):])
+            return comparator(actual, requested)
+    return None
 
 
 def _version_matches(version: str, requirement: str) -> bool:
@@ -320,35 +318,9 @@ def _version_matches(version: str, requirement: str) -> bool:
     if requirement.startswith(TILDE_PREFIX):
         return _matches_tilde(actual, requirement)
 
-    if requirement.startswith(GREATER_EQUAL_PREFIX):
-        return _compare_prefix(
-            actual, requirement, GREATER_EQUAL_PREFIX,
-            lambda a, b: a >= b,
-        )
-
-    if requirement.startswith(LESS_EQUAL_PREFIX):
-        return _compare_prefix(
-            actual, requirement, LESS_EQUAL_PREFIX,
-            lambda a, b: a <= b,
-        )
-
-    if requirement.startswith(GREATER_PREFIX):
-        return _compare_prefix(
-            actual, requirement, GREATER_PREFIX,
-            lambda a, b: a > b,
-        )
-
-    if requirement.startswith(LESS_PREFIX):
-        return _compare_prefix(
-            actual, requirement, LESS_PREFIX,
-            lambda a, b: a < b,
-        )
-
-    if requirement.startswith(EXACT_PREFIX):
-        return _compare_prefix(
-            actual, requirement, EXACT_PREFIX,
-            lambda a, b: a == b,
-        )
+    result = _match_operator(actual, requirement)
+    if result is not None:
+        return result
 
     if any(ch in requirement.lower() for ch in WILDCARD_CHARS):
         return _matches_wildcard(actual, requirement)
@@ -380,9 +352,6 @@ def _select_version(
         available,
         key=lambda record: _version_tuple(record["vers"]),
     )
-
-
-# Построение удалённого Cargo-репозитория
 
 
 def _validate_cargo_arguments(

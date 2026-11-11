@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from typing import Any
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as xml_et
 
 
 NODE_WIDTH = 180
@@ -38,7 +38,7 @@ ARROW_MARKER_REF_X = 8
 ARROW_MARKER_REF_Y = 3
 ARROW_MARKER_PATH = "M0,0 L0,6 L9,3 z"
 
-ET.register_namespace("", SVG_NAMESPACE)
+xml_et.register_namespace("", SVG_NAMESPACE)
 
 
 class SVGRenderError(ValueError):
@@ -48,6 +48,27 @@ class SVGRenderError(ValueError):
 def _tag(name: str) -> str:
     """Возвращает имя SVG-элемента с пространством имён."""
     return f"{{{SVG_NAMESPACE}}}{name}"
+
+
+def _require_string(value: Any, message: str) -> str:
+    """Проверяет, что значение — непустая строка."""
+    if not isinstance(value, str) or not value:
+        raise SVGRenderError(message)
+    return value
+
+
+def _require_depth(node: dict[str, Any], name: str) -> None:
+    """Проверяет корректность поля depth у вершины."""
+    depth = node.get("depth")
+
+    if (
+        not isinstance(depth, int)
+        or isinstance(depth, bool)
+        or depth < 0
+    ):
+        raise SVGRenderError(
+            f"Некорректная глубина вершины '{name}'."
+        )
 
 
 def _validate_node(
@@ -60,32 +81,21 @@ def _validate_node(
             "Описание вершины должно быть словарём."
         )
 
-    node_id = node.get("id", node.get("name"))
-    name = node.get("name")
-    version = node.get("version")
-
-    if not isinstance(node_id, str) or not node_id:
-        raise SVGRenderError("Некорректный идентификатор вершины.")
-
-    if not isinstance(name, str) or not name:
-        raise SVGRenderError("Некорректное имя вершины.")
-
-    if not isinstance(version, str) or not version:
-        raise SVGRenderError(
-            f"У вершины '{name}' отсутствует версия."
-        )
+    node_id = _require_string(
+        node.get("id", node.get("name")),
+        "Некорректный идентификатор вершины.",
+    )
+    name = _require_string(
+        node.get("name"),
+        "Некорректное имя вершины.",
+    )
+    version = _require_string(
+        node.get("version"),
+        f"У вершины '{name}' отсутствует версия.",
+    )
 
     if check_depth:
-        depth = node.get("depth")
-
-        if (
-            not isinstance(depth, int)
-            or isinstance(depth, bool)
-            or depth < 0
-        ):
-            raise SVGRenderError(
-                f"Некорректная глубина вершины '{name}'."
-            )
+        _require_depth(node, name)
 
     return node_id, name, version
 
@@ -96,7 +106,9 @@ def _validate_edge(
 ) -> None:
     """Проверяет одно ребро графа."""
     if not isinstance(edge, dict):
-        raise SVGRenderError("Описание ребра должно быть словарём.")
+        raise SVGRenderError(
+            "Описание ребра должно быть словарём."
+        )
 
     source = edge.get("source")
     target = edge.get("target")
@@ -112,22 +124,22 @@ def _validate_edge(
         )
 
 
-def _validate_graph(
-    graph: dict[str, Any],
-    check_depth: bool = False,
-) -> tuple[str, dict[str, dict[str, Any]], list[dict[str, Any]]]:
-    """Проверяет структуру графа, вершины и рёбра."""
-    if not isinstance(graph, dict):
-        raise SVGRenderError("Граф должен быть словарём.")
-
+def _validate_root_field(graph: dict[str, Any]) -> str:
+    """Проверяет поле root графа."""
     root_id = graph.get("root")
-    nodes = graph.get("nodes")
-    edges = graph.get("edges")
 
     if not isinstance(root_id, str) or not root_id:
         raise SVGRenderError(
             "Не указан идентификатор корневого пакета."
         )
+
+    return root_id
+
+
+def _validate_lists_field(graph: dict[str, Any]) -> tuple[list, list]:
+    """Проверяет поля nodes и edges графа."""
+    nodes = graph.get("nodes")
+    edges = graph.get("edges")
 
     if not isinstance(nodes, list) or not nodes:
         raise SVGRenderError(
@@ -139,6 +151,14 @@ def _validate_graph(
             "Граф должен содержать список рёбер."
         )
 
+    return nodes, edges
+
+
+def _collect_node_map(
+    nodes: list,
+    check_depth: bool,
+) -> dict[str, dict[str, Any]]:
+    """Собирает карту вершин с проверкой дубликатов."""
     node_map: dict[str, dict[str, Any]] = {}
 
     for node in nodes:
@@ -150,6 +170,21 @@ def _validate_graph(
             )
 
         node_map[node_id] = node
+
+    return node_map
+
+
+def _validate_graph(
+    graph: dict[str, Any],
+    check_depth: bool = False,
+) -> tuple[str, dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    """Проверяет структуру графа, вершины и рёбра."""
+    if not isinstance(graph, dict):
+        raise SVGRenderError("Граф должен быть словарём.")
+
+    root_id = _validate_root_field(graph)
+    nodes, edges = _validate_lists_field(graph)
+    node_map = _collect_node_map(nodes, check_depth)
 
     if root_id not in node_map:
         raise SVGRenderError(
@@ -234,7 +269,7 @@ def _back_edge_path(
 
 
 def _draw_edges(
-    svg: ET.Element,
+    svg: xml_et.Element,
     edges: list[dict[str, Any]],
     positions: dict[str, tuple[int, int]],
     node_map: dict[str, dict[str, Any]],
@@ -252,7 +287,7 @@ def _draw_edges(
         else:
             path = _back_edge_path(source_pos, target_pos)
 
-        ET.SubElement(
+        xml_et.SubElement(
             svg,
             _tag("path"),
             {
@@ -277,7 +312,7 @@ def _node_colors(
 
 
 def _draw_node_rect(
-    svg: ET.Element,
+    svg: xml_et.Element,
     position: tuple[int, int],
     fill: str,
     stroke: str,
@@ -285,7 +320,7 @@ def _draw_node_rect(
     """Рисует прямоугольник вершины."""
     x, y = position
 
-    ET.SubElement(
+    xml_et.SubElement(
         svg,
         _tag("rect"),
         {
@@ -302,7 +337,7 @@ def _draw_node_rect(
 
 
 def _draw_node_labels(
-    svg: ET.Element,
+    svg: xml_et.Element,
     node: dict[str, Any],
     position: tuple[int, int],
     text_color: str,
@@ -321,7 +356,7 @@ def _draw_node_labels(
     )
 
     for text, offset, font_size in labels:
-        element = ET.SubElement(
+        element = xml_et.SubElement(
             svg,
             _tag("text"),
             {
@@ -336,7 +371,7 @@ def _draw_node_labels(
 
 
 def _draw_nodes(
-    svg: ET.Element,
+    svg: xml_et.Element,
     node_map: dict[str, dict[str, Any]],
     root_id: str,
     positions: dict[str, tuple[int, int]],
@@ -352,7 +387,7 @@ def _draw_nodes(
 
 def _save_file(
     output_path: str | Path,
-    content: str | ET.Element,
+    content: str | xml_et.Element,
 ) -> Path:
     """Сохраняет текстовый или SVG-файл."""
     output = Path(output_path)
@@ -363,7 +398,7 @@ def _save_file(
         if isinstance(content, str):
             output.write_text(content, encoding="utf-8")
         else:
-            ET.ElementTree(content).write(
+            xml_et.ElementTree(content).write(
                 output,
                 encoding="utf-8",
                 xml_declaration=True,
@@ -376,12 +411,9 @@ def _save_file(
     return output
 
 
-def _create_svg_root(
-    width: int,
-    height: int,
-) -> ET.Element:
+def _create_svg_root(width: int, height: int) -> xml_et.Element:
     """Создаёт корневой SVG-элемент."""
-    return ET.Element(
+    return xml_et.Element(
         _tag("svg"),
         {
             "width": str(width),
@@ -393,21 +425,21 @@ def _create_svg_root(
 
 
 def _add_title(
-    svg: ET.Element,
+    svg: xml_et.Element,
     node_map: dict[str, dict[str, Any]],
     root_id: str,
 ) -> None:
     """Добавляет заголовок SVG."""
-    title = ET.SubElement(svg, _tag("title"))
+    title = xml_et.SubElement(svg, _tag("title"))
     title.text = (
         f"Граф зависимостей пакета {node_map[root_id]['name']}"
     )
 
 
-def _add_arrow_marker(svg: ET.Element) -> None:
+def _add_arrow_marker(svg: xml_et.Element) -> None:
     """Добавляет маркер стрелки в defs."""
-    definitions = ET.SubElement(svg, _tag("defs"))
-    marker = ET.SubElement(
+    definitions = xml_et.SubElement(svg, _tag("defs"))
+    marker = xml_et.SubElement(
         definitions,
         _tag("marker"),
         {
@@ -420,7 +452,7 @@ def _add_arrow_marker(svg: ET.Element) -> None:
         },
     )
 
-    ET.SubElement(
+    xml_et.SubElement(
         marker,
         _tag("path"),
         {

@@ -1,4 +1,3 @@
-
 """Анализ графа зависимостей пакетов."""
 
 from typing import Any
@@ -30,6 +29,49 @@ def _validate_input(
         )
 
 
+def _initial_stack(
+    packages: dict[str, dict[str, Any]],
+    package_name: str,
+) -> list[tuple[str, int]]:
+    """Формирует начальный стек обхода DFS."""
+    return [
+        (dependency, 1)
+        for dependency in reversed(
+            packages[package_name]["dependencies"]
+        )
+    ]
+
+
+def _make_entry(
+    package_id: str,
+    package: dict[str, Any],
+    depth: int,
+) -> dict[str, Any]:
+    """Формирует запись о найденной зависимости."""
+    return {
+        "id": package_id,
+        "name": package.get("name", package_id),
+        "version": package["version"],
+        "depth": depth,
+    }
+
+
+def _push_children(
+    stack: list[tuple[str, int]],
+    package: dict[str, Any],
+    depth: int,
+    max_depth: int,
+    visited: set[str],
+) -> None:
+    """Добавляет в стек непосещённые зависимости пакета."""
+    if depth >= max_depth:
+        return
+
+    for dependency in reversed(package["dependencies"]):
+        if dependency not in visited:
+            stack.append((dependency, depth + 1))
+
+
 def analyze_dependencies(
     packages: dict[str, dict[str, Any]],
     package_name: str,
@@ -41,14 +83,9 @@ def analyze_dependencies(
     if max_depth == 0:
         return []
 
-    result = []
+    result: list[dict[str, Any]] = []
     visited = {package_name}
-    stack = [
-        (dependency, 1)
-        for dependency in reversed(
-            packages[package_name]["dependencies"]
-        )
-    ]
+    stack = _initial_stack(packages, package_name)
 
     while stack:
         package_id, depth = stack.pop()
@@ -58,22 +95,12 @@ def analyze_dependencies(
 
         if package_id not in packages:
             raise DependencyAnalysisError(
-                f"Зависимость '{package_id}' не найдена в репозитории."
+                f"Зависимость '{package_id}' не найдена."
             )
 
         visited.add(package_id)
         package = packages[package_id]
-
-        result.append({
-            "id": package_id,
-            "name": package.get("name", package_id),
-            "version": package["version"],
-            "depth": depth,
-        })
-
-        if depth < max_depth:
-            for dependency in reversed(package["dependencies"]):
-                if dependency not in visited:
-                    stack.append((dependency, depth + 1))
+        result.append(_make_entry(package_id, package, depth))
+        _push_children(stack, package, depth, max_depth, visited)
 
     return result
